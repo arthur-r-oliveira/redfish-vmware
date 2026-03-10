@@ -26,7 +26,10 @@ def track_vmware_operation(operation_name):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
             start_time = time.time()
-            vm_name = getattr(self, '_current_vm_name', 'unknown')
+            # Use first arg as vm_name when present (e.g. mount_iso_from_url(self, vm_name, url))
+            vm_name = args[0] if args else getattr(self, '_current_vm_name', None)
+            if vm_name is None:
+                vm_name = 'unknown'
             
             # Log operation start
             logger.info(f"🔧 [{operation_name}] Starting for VM: {vm_name}")
@@ -237,6 +240,18 @@ class VMwareClient:
             logger.error(f"❌ Failed to mount ISO for VM {vm_name}: {e}")
             raise
     
+    @track_vmware_operation("Mount ISO from URL")
+    def mount_iso_from_url(self, vm_name, image_url, write_protected=True,
+                           datastore_name=None, virtual_media_folder=None):
+        """Download image from URL, upload to datastore, and mount as CD (Redfish VirtualMedia.InsertMedia). Raises on failure."""
+        self.set_current_vm(vm_name)
+        logger.info(f"💿 Mounting ISO from URL for VM {vm_name}: {image_url[:80]}...")
+        self.media_ops.mount_iso_from_url(
+            vm_name, image_url, write_protected=write_protected,
+            datastore_name=datastore_name, virtual_media_folder=virtual_media_folder
+        )
+        logger.info(f"✅ ISO from URL mounted successfully for VM {vm_name}")
+    
     @track_vmware_operation("Unmount ISO")
     def unmount_iso(self, vm_name):
         """Unmount ISO with enhanced logging"""
@@ -305,6 +320,10 @@ class VMwareClient:
     def get_vm_info(self, vm_name):
         """Get detailed VM information"""
         return self.vm_ops.get_vm_info(vm_name)
+    
+    def get_network_interfaces(self, vm_name):
+        """Get VM NIC MAC addresses for Redfish Systems EthernetInterfaces."""
+        return self.vm_ops.get_network_interfaces(vm_name)
     
     def get_vm_power_state(self, vm_name):
         """Get VM power state"""

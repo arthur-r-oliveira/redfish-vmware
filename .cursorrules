@@ -264,6 +264,9 @@ Key rules:
 - `name` must **exactly match** the VM name in vCenter
 - Never commit `config.json` (contains credentials)
 - `redfish_user`/`redfish_password` are always `admin`/`password`
+- **Virtual media (InsertMedia)** – optional per-VM:
+  - `virtual_media_datastore`: datastore name to upload ISOs to (e.g. `"isos"`). If omitted, uses the VM’s datastore.
+  - `virtual_media_folder`: folder path on that datastore. May contain `{vm_name}` and `{filename}`. Examples: `"arolivei"` → `arolivei/<filename>.iso`; `"redfish-isos/{vm_name}"` (default) → `redfish-isos/<vm_name>/<filename>.iso`.
 
 Environment variables:
 - `REDFISH_DEBUG=true` - Full debug logging

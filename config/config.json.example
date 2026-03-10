@@ -1,7 +1,7 @@
 {
   "vmware": {
     "host": "vcenter.example.com",
-    "user": "administrator@vsphere.local", 
+    "user": "administrator@vsphere.local",
     "password": "your-password-here",
     "port": 443,
     "disable_ssl": true
@@ -19,7 +19,21 @@
       "redfish_port": 8443,
       "redfish_user": "admin",
       "redfish_password": "password",
-      "disable_ssl": true
+      "disable_ssl": true,
+      "virtual_media_datastore": "isos",
+      "virtual_media_folder": "arolivei"
+    },
+    {
+      "name": "arolivei-ocp-tnf-a",
+      "vcenter_host": "vcenter.example.com",
+      "vcenter_user": "administrator@vsphere.local",
+      "vcenter_password": "your-password-here",
+      "redfish_port": 8440,
+      "redfish_user": "admin",
+      "redfish_password": "password",
+      "disable_ssl": true,
+      "virtual_media_datastore": "isos",
+      "virtual_media_folder": "arolivei"
     },
     {
       "name": "vm-master-1",

@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from models.redfish_schemas import RedfishModels
+from vmware.media_operations import InsertMediaError
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,75 @@ class ManagersHandler:
                 self._send_error_response(request_handler, 404, "Manager not found")
         else:
             self._send_error_response(request_handler, 404, "Not Found")
+    
+    def handle_post(self, request_handler, path: str):
+        """Handle POST requests for Managers (VirtualMedia actions)."""
+        path_only = path.split('?')[0]
+        if '/VirtualMedia/' not in path_only or '/Actions/' not in path_only:
+            self._send_error_response(request_handler, 404, "Not Found")
+            return
+        manager_id = self._extract_manager_id(path)
+        if not manager_id:
+            self._send_error_response(request_handler, 404, "Manager not found")
+            return
+        vm_name = manager_id.replace('-bmc', '') if manager_id.endswith('-bmc') else manager_id
+        if vm_name not in self.vm_configs or vm_name not in self.vmware_clients:
+            self._send_error_response(request_handler, 404, "Manager not found")
+            return
+        client = self.vmware_clients[vm_name]
+        if path_only.endswith('/Actions/VirtualMedia.InsertMedia'):
+            self._handle_insert_media(request_handler, vm_name, client)
+        elif path_only.endswith('/Actions/VirtualMedia.EjectMedia'):
+            self._handle_eject_media(request_handler, vm_name, client)
+        else:
+            self._send_error_response(request_handler, 404, "Not Found")
+    
+    def _handle_insert_media(self, request_handler, vm_name: str, client):
+        """Handle VirtualMedia.InsertMedia: parse Image URL and mount ISO from URL."""
+        try:
+            content_length = int(request_handler.headers.get('Content-Length', 0))
+            if content_length <= 0:
+                self._send_error_response(request_handler, 400, "Missing request body")
+                return
+            body = request_handler.rfile.read(content_length)
+            data = json.loads(body.decode('utf-8'))
+            image_url = data.get('Image') or data.get('image')
+            if not image_url or not str(image_url).strip():
+                self._send_error_response(request_handler, 400, "Image URL is required")
+                return
+            image_url = str(image_url).strip()
+            write_protected = data.get('WriteProtected', True)
+            vm_config = self.vm_configs.get(vm_name) or {}
+            client.mount_iso_from_url(
+                vm_name, image_url, write_protected=write_protected,
+                datastore_name=vm_config.get('virtual_media_datastore'),
+                virtual_media_folder=vm_config.get('virtual_media_folder')
+            )
+            request_handler.send_response(204)
+            request_handler.end_headers()
+        except InsertMediaError as e:
+            msg = str(e)
+            logger.warning(f"InsertMedia failed for {vm_name}: {msg}")
+            self._send_error_response(request_handler, 500, f"Failed to insert virtual media: {msg}")
+        except json.JSONDecodeError as e:
+            logger.warning(f"Invalid JSON in InsertMedia body: {e}")
+            self._send_error_response(request_handler, 400, "Invalid JSON body")
+        except Exception as e:
+            logger.error(f"InsertMedia error for {vm_name}: {e}", exc_info=True)
+            self._send_error_response(request_handler, 500, f"Internal server error: {e}")
+    
+    def _handle_eject_media(self, request_handler, vm_name: str, client):
+        """Handle VirtualMedia.EjectMedia: unmount ISO."""
+        try:
+            success = client.unmount_iso(vm_name)
+            if success:
+                request_handler.send_response(204)
+                request_handler.end_headers()
+            else:
+                self._send_error_response(request_handler, 500, "Failed to eject virtual media")
+        except Exception as e:
+            logger.error(f"EjectMedia error for {vm_name}: {e}", exc_info=True)
+            self._send_error_response(request_handler, 500, "Internal server error")
     
     def _extract_manager_id(self, path: str) -> Optional[str]:
         """Extract manager ID from path"""
@@ -113,6 +183,10 @@ class ManagersHandler:
     
     def _handle_virtual_media_get(self, request_handler, manager_id: str, path: str):
         """Handle VirtualMedia GET requests"""
+        # Redfish action URIs (InsertMedia/EjectMedia) only accept POST; return 405 for GET
+        if '/Actions/VirtualMedia.InsertMedia' in path or '/Actions/VirtualMedia.EjectMedia' in path:
+            self._send_error_response(request_handler, 405, "Method Not Allowed")
+            return
         if path.endswith('/VirtualMedia'):
             # VirtualMedia collection
             data = {
@@ -132,8 +206,10 @@ class ManagersHandler:
             }
             self._send_json_response(request_handler, 200, data)
         elif '/VirtualMedia/' in path:
-            # Individual virtual media
-            media_id = path.split('/')[-1]
+            # Individual virtual media (path may be .../VirtualMedia/CD or .../VirtualMedia/Floppy)
+            # Last segment is the media id only if we're not under Actions
+            parts = path.rstrip('/').split('/')
+            media_id = parts[-1] if parts else ''
             if media_id in ['CD', 'Floppy']:
                 data = {
                     '@odata.type': '#VirtualMedia.v1_3_0.VirtualMedia',

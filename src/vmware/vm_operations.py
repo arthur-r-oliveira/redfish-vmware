@@ -117,6 +117,32 @@ class VMOperations:
             logger.error(f"Error getting VM info for '{vm_name}': {e}")
             return None
     
+    def get_network_interfaces(self, vm_name):
+        """
+        Get MAC addresses of the VM's network adapters (for Redfish Systems EthernetInterfaces).
+        Ironic uses this to discover ports for inspection/provisioning.
+        """
+        try:
+            vm = self.get_vm(vm_name)
+            if not vm or not vm.config or not vm.config.hardware:
+                return []
+            interfaces = []
+            for i, device in enumerate(vm.config.hardware.device):
+                if isinstance(device, vim.vm.device.VirtualEthernetCard):
+                    mac = (device.macAddress or "").strip()
+                    if not mac:
+                        mac = "00:00:00:00:00:00"
+                    interfaces.append({
+                        'mac_address': mac,
+                        'key': device.key,
+                        'id': f"eth{i}",
+                        'name': getattr(device, 'deviceInfo', None) and device.deviceInfo.label or f"NIC {i}"
+                    })
+            return interfaces
+        except Exception as e:
+            logger.debug(f"Error getting network interfaces for '{vm_name}': {e}")
+            return []
+    
     def get_vm_power_state(self, vm_name):
         """
         Get VM power state

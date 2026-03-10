@@ -24,20 +24,25 @@ class SystemsHandler:
     
     def handle_get(self, request_handler, path: str):
         """Handle GET requests for Systems"""
-        if path == '/redfish/v1/Systems':
+        # Normalize: strip query string and trailing slash so ?foo=bar and / work correctly
+        path_no_query = path.split('?')[0] or path
+        path_normalized = path_no_query.rstrip('/') or path_no_query
+        if path_normalized == '/redfish/v1/Systems':
             # Systems collection
             data = RedfishModels.get_systems_collection(list(self.vm_configs.keys()))
             self._send_json_response(request_handler, 200, data)
-        elif '/redfish/v1/Systems/' in path:
+        elif '/redfish/v1/Systems/' in path_normalized and path_normalized != '/redfish/v1/Systems':
             # Individual system
-            vm_name = self._extract_vm_name(path)
+            vm_name = self._extract_vm_name(path_normalized)
             if vm_name and vm_name in self.vm_configs:
-                if '/Bios' in path:
-                    self._handle_bios_get(request_handler, vm_name, path)
-                elif '/Storage' in path:
-                    self._handle_storage_get(request_handler, vm_name, path)
-                elif '/SecureBoot' in path:
-                    self._handle_secure_boot_get(request_handler, vm_name, path)
+                if '/Bios' in path_normalized:
+                    self._handle_bios_get(request_handler, vm_name, path_normalized)
+                elif '/Storage' in path_normalized:
+                    self._handle_storage_get(request_handler, vm_name, path_normalized)
+                elif '/SecureBoot' in path_normalized:
+                    self._handle_secure_boot_get(request_handler, vm_name, path_normalized)
+                elif '/EthernetInterfaces' in path_normalized:
+                    self._handle_system_ethernet_interfaces_get(request_handler, vm_name, path_normalized)
                 else:
                     data = self._get_system_info(vm_name)
                     self._send_json_response(request_handler, 200, data)
@@ -126,6 +131,9 @@ class SystemsHandler:
                 },
                 'Storage': {
                     '@odata.id': f'/redfish/v1/Systems/{vm_name}/Storage'
+                },
+                'EthernetInterfaces': {
+                    '@odata.id': f'/redfish/v1/Systems/{vm_name}/EthernetInterfaces'
                 },
                 'Actions': {
                     '#ComputerSystem.Reset': {
@@ -247,6 +255,46 @@ class SystemsHandler:
                         'target': f'/redfish/v1/Systems/{vm_name}/SecureBoot/Actions/SecureBoot.ResetKeys'
                     }
                 }
+            }
+            self._send_json_response(request_handler, 200, data)
+        else:
+            self._send_error_response(request_handler, 404, "Not Found")
+    
+    def _handle_system_ethernet_interfaces_get(self, request_handler, vm_name: str, path: str):
+        """Handle Systems EthernetInterfaces (NIC MACs). Required by Ironic for port discovery."""
+        client = self.vmware_clients.get(vm_name)
+        interfaces = client.get_network_interfaces(vm_name) if client else []
+        if not interfaces:
+            # Fallback: one placeholder so Ironic still finds the attribute
+            interfaces = [{'id': 'eth0', 'mac_address': '00:50:56:00:00:00', 'name': 'NIC 0'}]
+        if path.endswith('/EthernetInterfaces'):
+            data = {
+                '@odata.type': '#EthernetInterfaceCollection.EthernetInterfaceCollection',
+                '@odata.id': f'/redfish/v1/Systems/{vm_name}/EthernetInterfaces',
+                'Name': 'Ethernet Network Interface Collection',
+                'Description': f'Ethernet interfaces for {vm_name}',
+                'Members@odata.count': len(interfaces),
+                'Members': [{'@odata.id': f'/redfish/v1/Systems/{vm_name}/EthernetInterfaces/{iface["id"]}'} for iface in interfaces]
+            }
+            self._send_json_response(request_handler, 200, data)
+        elif '/EthernetInterfaces/' in path:
+            iface_id = path.split('/')[-1]
+            match = next((i for i in interfaces if i['id'] == iface_id), None)
+            if not match:
+                self._send_error_response(request_handler, 404, "Interface not found")
+                return
+            data = {
+                '@odata.type': '#EthernetInterface.v1_6_0.EthernetInterface',
+                '@odata.id': f'/redfish/v1/Systems/{vm_name}/EthernetInterfaces/{iface_id}',
+                'Id': iface_id,
+                'Name': match.get('name', iface_id),
+                'Description': f'Ethernet interface {iface_id} for {vm_name}',
+                'Status': {'State': 'Enabled', 'Health': 'OK'},
+                'InterfaceEnabled': True,
+                'PermanentMACAddress': match['mac_address'],
+                'MACAddress': match['mac_address'],
+                'SpeedMbps': 1000,
+                'FullDuplex': True,
             }
             self._send_json_response(request_handler, 200, data)
         else:

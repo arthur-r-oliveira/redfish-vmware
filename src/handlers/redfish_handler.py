@@ -132,11 +132,17 @@ class RedfishHandler:
             self._handle_health_endpoint(request_handler)
             return
         
-        # Check authentication for all other endpoints
-        authenticated, username = self.auth_manager.authenticate_request(request_handler)
-        if not authenticated:
-            self._send_auth_challenge(request_handler)
-            return
+        # GET /redfish/v1/Systems (collection and member) is public so Metal3 can read power state during registration (IPI requirement)
+        path_only = path.split('?')[0].rstrip('/') or path
+        systems_get_public = (
+            path_only == '/redfish/v1/Systems' or
+            path_only.startswith('/redfish/v1/Systems/')
+        )
+        if not systems_get_public:
+            authenticated, username = self.auth_manager.authenticate_request(request_handler)
+            if not authenticated:
+                self._send_auth_challenge(request_handler)
+                return
         
         # Route to specific handlers
         if path.startswith('/redfish/v1/Systems'):
@@ -166,6 +172,8 @@ class RedfishHandler:
         # Route to specific handlers
         if path.startswith('/redfish/v1/Systems'):
             self.systems_handler.handle_post(request_handler, path)
+        elif path.startswith('/redfish/v1/Managers'):
+            self.managers_handler.handle_post(request_handler, path)
         elif path.startswith('/redfish/v1/SessionService/Sessions'):
             self._handle_session_creation(request_handler)
         else:
@@ -186,13 +194,15 @@ class RedfishHandler:
     
     def _route_delete_request(self, request_handler, path):
         """Route DELETE requests to appropriate handlers"""
-        authenticated, username = self.auth_manager.authenticate_request(request_handler)
-        if not authenticated:
-            self._send_auth_challenge(request_handler)
-            return
+        # DELETE SessionService/Sessions/<id> does not require auth (session ID is sufficient; IPI/Metal3 often omit X-Auth-Token on DELETE)
+        path_only = path.split('?')[0]
+        if not path_only.startswith('/redfish/v1/SessionService/Sessions'):
+            authenticated, username = self.auth_manager.authenticate_request(request_handler)
+            if not authenticated:
+                self._send_auth_challenge(request_handler)
+                return
         
-        # Route to specific handlers
-        if path.startswith('/redfish/v1/SessionService/Sessions'):
+        if path_only.startswith('/redfish/v1/SessionService/Sessions'):
             self._handle_session_deletion(request_handler, path)
         else:
             self._send_error_response(request_handler, 404, "Not Found")
@@ -234,7 +244,7 @@ class RedfishHandler:
             self._send_error_response(request_handler, 404, "Not Found")
     
     def _handle_session_creation(self, request_handler):
-        """Handle session creation"""
+        """Handle session creation. Returns 201 with X-Auth-Token and Location per Redfish so clients (e.g. sushy) can use session auth."""
         try:
             content_length = int(request_handler.headers.get('Content-Length', 0))
             if content_length > 0:
@@ -247,7 +257,26 @@ class RedfishHandler:
                 # Validate credentials
                 if username == 'admin' and password == 'password':
                     session = self.auth_manager.create_session(username)
-                    self._send_json_response(request_handler, 201, session)
+                    session_id = session['Id']
+                    session_token = session['SessionToken']
+                    session_uri = f'/redfish/v1/SessionService/Sessions/{session_id}'
+                    # Redfish requires X-Auth-Token and Location so clients (sushy, Ironic) can use session auth
+                    body = {
+                        '@odata.type': '#Session.v1_2_0.Session',
+                        '@odata.id': session_uri,
+                        'Id': session_id,
+                        'Name': session.get('Name', f'Session for {username}'),
+                        'Description': session.get('Description', 'User session'),
+                        'UserName': username,
+                    }
+                    json_body = json.dumps(body, indent=2)
+                    request_handler.send_response(201)
+                    request_handler.send_header('Content-Type', 'application/json')
+                    request_handler.send_header('X-Auth-Token', session_token)
+                    request_handler.send_header('Location', session_uri)
+                    request_handler.send_header('Content-Length', str(len(json_body)))
+                    request_handler.end_headers()
+                    request_handler.wfile.write(json_body.encode('utf-8'))
                 else:
                     self._send_error_response(request_handler, 401, "Invalid credentials")
             else:

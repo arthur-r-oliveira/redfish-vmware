@@ -55,6 +55,9 @@ src/
 - **Zero Failed Queries** - Smart system that prevents failures in Metal3 periodic queries
 - **Real-time Task Progress** - Tasks with real-time progress and auto-completion
 
+### Recent enhancements
+- **Virtual media (InsertMedia)** – Server downloads the ISO from the `Image` URL, uploads it to a configurable VMware datastore/folder (`virtual_media_datastore`, `virtual_media_folder` in `config.json`), then mounts it as the VM's CD. pyVmomi connectable type (ConnectInfo) used for reliable mount/unmount.
+
 ## � Enhanced Debugging and Monitoring
 
 ### Debug Configuration
@@ -156,6 +159,13 @@ Edit `config/config.json`:
 }
 ```
 
+**Optional (virtual media ISO upload):** To control where InsertMedia uploads the ISO on the VMware side, add per-VM:
+
+- `virtual_media_datastore` – Datastore name (e.g. `"isos"`). If omitted, the VM's datastore is used.
+- `virtual_media_folder` – Folder path on that datastore (e.g. `"arolivei"`). Supports `{vm_name}` and `{filename}`. If omitted, defaults to `redfish-isos/{vm_name}`.
+
+See `config/config.json.example` for a full example.
+
 ### 2. Run Setup
 
 ```bash
@@ -222,6 +232,28 @@ sudo systemctl restart redfish-vmware-server
 sudo journalctl -u redfish-vmware-server -f
 ```
 
+### Test script (Redfish enhancements)
+
+The `scripts/test-redfish-enhancements.sh` script runs a full suite of Redfish checks (public GETs, sessions, power, boot, optional VirtualMedia InsertMedia/EjectMedia). Use it to validate a given VM and base URL.
+
+**From repo root:**
+
+```bash
+REDFISH_ISO_URL=http://10.10.74.222/rhel-9.6-x86_64-boot.iso REDFISH_USER=admin REDFISH_PASSWORD=password \
+  ./scripts/test-redfish-enhancements.sh https://10.10.74.222:8440 arolivei-ocp-tnf-a
+```
+
+**From `scripts/` directory:**
+
+```bash
+REDFISH_ISO_URL=http://10.10.74.222/rhel-9.6-x86_64-boot.iso REDFISH_USER=admin REDFISH_PASSWORD=password \
+  ./test-redfish-enhancements.sh https://10.10.74.222:8440 arolivei-ocp-tnf-a
+```
+
+- `REDFISH_ISO_URL` – HTTP(S) URL of the ISO (server pulls from here, then pushes to the VMware datastore).
+- `REDFISH_USER` / `REDFISH_PASSWORD` – Basic auth (defaults: `admin` / `password`).
+- For InsertMedia to upload to a specific datastore/folder (e.g. `[isos] arolivei/`), the **server** `config/config.json` must define for that VM: `"virtual_media_datastore": "isos"`, `"virtual_media_folder": "arolivei"`.
+
 ## 🏗️ Architecture
 
 ```
@@ -254,8 +286,8 @@ sudo journalctl -u redfish-vmware-server -f
 
 ### Virtual Media Management
 - `GET /redfish/v1/Managers/{id}/VirtualMedia` - Collection of virtual devices
-- `POST /redfish/v1/Managers/{id}/VirtualMedia/{device_id}/Actions/VirtualMedia.InsertMedia`
-- `POST /redfish/v1/Managers/{id}/VirtualMedia/{device_id}/Actions/VirtualMedia.EjectMedia`
+- `POST /redfish/v1/Managers/{id}/VirtualMedia/{device_id}/Actions/VirtualMedia.InsertMedia` - Body: `{"Image": "http(s)://..."}`. The server downloads the ISO from the URL, uploads it to the configured VMware datastore (see **Virtual media (ISO upload)** below), then mounts it as the VM's CD.
+- `POST /redfish/v1/Managers/{id}/VirtualMedia/{device_id}/Actions/VirtualMedia.EjectMedia` - Unmount the ISO from the CD/DVD drive.
 
 ### Hardware Inventory & Inspection
 - `GET /redfish/v1/Systems/{id}` - Detailed system information

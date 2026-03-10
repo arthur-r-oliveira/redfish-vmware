@@ -59,6 +59,11 @@ request_tracker = RequestTracker()
 class RedfishRequestHandler(BaseHTTPRequestHandler):
     """Enhanced Redfish HTTP request handler with comprehensive logging"""
     
+    def send_response(self, code, message=None):
+        """Override to record status code for accurate completion logging"""
+        self._response_status_code = code
+        super().send_response(code, message)
+    
     def setup(self):
         """Setup connection with enhanced SSL/TLS detection"""
         self.request_id = str(uuid.uuid4())[:8]  # Short unique ID for this request
@@ -157,10 +162,11 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         
         return client_info
     
-    def _log_request_end(self, method, start_time, status_code=200, additional_info=None):
+    def _log_request_end(self, method, start_time, status_code=None, additional_info=None):
         """Log the end of a request with performance metrics"""
         duration = time.time() - start_time
-        
+        if status_code is None:
+            status_code = getattr(self, '_response_status_code', 200)
         # Record in tracker
         request_tracker.record_request(method, self.path, duration, status_code)
         
