@@ -87,15 +87,15 @@ class SystemsHandler:
     def _get_system_info(self, vm_name: str) -> Dict:
         """Get system information for a VM"""
         try:
-            # Get VM power state
+            # Get VM power state (vm_info may be None if vCenter unreachable or session expired)
             vmware_client = self.vmware_clients.get(vm_name)
+            power_state = 'Off'
             if vmware_client:
                 vm_info = vmware_client.get_vm_info(vm_name)
-                power_state = RedfishModels.get_power_state_mapping().get(
-                    vm_info.get('power_state', 'poweredOff'), 'Off'
-                )
-            else:
-                power_state = 'Off'
+                if vm_info:
+                    power_state = RedfishModels.get_power_state_mapping().get(
+                        vm_info.get('power_state', 'poweredOff'), 'Off'
+                    )
             
             return {
                 '@odata.type': '#ComputerSystem.v1_13_0.ComputerSystem',

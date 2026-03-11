@@ -77,7 +77,20 @@ class VMwareConnection:
                 logger.info("Disconnected from VMware")
         except Exception as e:
             logger.error(f"Error disconnecting: {e}")
-    
+        finally:
+            self.service_instance = None
+            self.content = None
+
+    def reconnect(self):
+        """Reconnect to vCenter (e.g. after session expired). Disconnects then connects again."""
+        try:
+            self.disconnect()
+            self.connect()
+            logger.info("Reconnected to VMware vSphere")
+        except Exception as e:
+            logger.error(f"Reconnect failed: {e}")
+            raise
+
     def is_connected(self):
         """Check if connection is active"""
         return self.service_instance is not None

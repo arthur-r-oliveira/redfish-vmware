@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
 # Curl tests for Redfish-VMware (IPI/Metal3 compatibility):
-#   - Public GETs (Systems, trailing slash, query string)
+#   - Public GETs (Systems, Managers, trailing slash, query string)
 #   - Session create + DELETE with/without auth
-#   - Protected endpoints (401)
+#   - Protected GETs (UpdateService → 401 without auth)
 #   - Power status GET, Power off, Power on
 #   - Boot from Cd (PATCH)
 #   - VirtualMedia InsertMedia / EjectMedia (optional if REDFISH_ISO_URL set)
@@ -152,12 +152,12 @@ else
   echo "  ⚠️  No token or Id; skipping"
 fi
 
-# ----- Protected endpoint still requires auth -----
+# ----- Public vs protected GETs (Managers is public for Metal3/IPI inspection; UpdateService requires auth) -----
 echo ""
-echo "--- 4. Protected GETs (expect 401 without auth) ---"
+echo "--- 4. Public GETs (Managers) + Protected GETs (expect 401) ---"
 
 code=$(curl -s $CURL_INSECURE -o /dev/null -w '%{http_code}' "$REDFISH_BASE/Managers")
-assert_status "GET /redfish/v1/Managers (no auth → 401)" "401" "$code"
+assert_status "GET /redfish/v1/Managers (no auth, public for Metal3)" "200" "$code"
 
 code=$(curl -s $CURL_INSECURE -o /dev/null -w '%{http_code}' "$REDFISH_BASE/UpdateService")
 assert_status "GET /redfish/v1/UpdateService (no auth → 401)" "401" "$code"

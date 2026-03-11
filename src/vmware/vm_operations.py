@@ -25,7 +25,7 @@ class VMOperations:
     
     def get_vm(self, vm_name):
         """
-        Get VM object by name
+        Get VM object by name. On vCenter session expiry (NotAuthenticated), reconnects and retries once.
         
         Args:
             vm_name: Name of the virtual machine
@@ -34,24 +34,35 @@ class VMOperations:
             VM object or None if not found
         """
         try:
-            container = self.content.viewManager.CreateContainerView(
-                self.content.rootFolder,
-                [vim.VirtualMachine],
-                True
-            )
-            
-            for vm in container.view:
-                if vm.name == vm_name:
-                    container.Destroy()
-                    return vm
-            
-            container.Destroy()
-            logger.warning(f"VM '{vm_name}' not found")
-            return None
-            
+            return self._get_vm_impl(vm_name)
+        except vim.fault.NotAuthenticated:
+            logger.warning(f"vCenter session expired for '{vm_name}', reconnecting...")
+            try:
+                self.connection.reconnect()
+                self.content = self.connection.get_content()
+                return self._get_vm_impl(vm_name)
+            except Exception as e:
+                logger.error(f"Error finding VM '{vm_name}' after reconnect: {e}")
+                return None
         except Exception as e:
             logger.error(f"Error finding VM '{vm_name}': {e}")
             return None
+
+    def _get_vm_impl(self, vm_name):
+        """Internal: get VM by name using current content (no retry)."""
+        container = self.content.viewManager.CreateContainerView(
+            self.content.rootFolder,
+            [vim.VirtualMachine],
+            True
+        )
+        try:
+            for vm in container.view:
+                if vm.name == vm_name:
+                    return vm
+            logger.warning(f"VM '{vm_name}' not found")
+            return None
+        finally:
+            container.Destroy()
     
     def list_vms(self):
         """

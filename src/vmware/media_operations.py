@@ -295,8 +295,8 @@ class MediaOperations:
                 raise InsertMediaError(f"virtual_media_folder contains unsupported placeholder: {e}")
             remote_path = f"{folder_path}/{filename}"
             logger.info(f"InsertMedia: downloading from {image_url[:80]}... for VM '{vm_name}' (upload to [{datastore.info.name}] {remote_path})")
-            verify_ssl = not getattr(self.connection, 'disable_ssl_verification', True)
-            resp = requests.get(image_url, stream=True, timeout=300, verify=verify_ssl)
+            # Skip SSL verification for the Image URL: Metal3/Ironic often serve the ISO over HTTPS with a self-signed cert
+            resp = requests.get(image_url, stream=True, timeout=300, verify=False)
             resp.raise_for_status()
             with tempfile.NamedTemporaryFile(delete=False, suffix=".iso") as tmp:
                 for chunk in resp.iter_content(chunk_size=1024 * 1024):

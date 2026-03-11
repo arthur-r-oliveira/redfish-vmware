@@ -132,13 +132,17 @@ class RedfishHandler:
             self._handle_health_endpoint(request_handler)
             return
         
-        # GET /redfish/v1/Systems (collection and member) is public so Metal3 can read power state during registration (IPI requirement)
+        # GET /redfish/v1/Systems and GET /redfish/v1/Managers are public so Metal3/Ironic can inspect during IPI (no auth on first request or when session token not sent)
         path_only = path.split('?')[0].rstrip('/') or path
         systems_get_public = (
             path_only == '/redfish/v1/Systems' or
             path_only.startswith('/redfish/v1/Systems/')
         )
-        if not systems_get_public:
+        managers_get_public = (
+            path_only == '/redfish/v1/Managers' or
+            path_only.startswith('/redfish/v1/Managers/')
+        )
+        if not systems_get_public and not managers_get_public:
             authenticated, username = self.auth_manager.authenticate_request(request_handler)
             if not authenticated:
                 self._send_auth_challenge(request_handler)

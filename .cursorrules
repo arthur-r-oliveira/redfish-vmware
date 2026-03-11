@@ -122,7 +122,7 @@ Collections MUST include:
 
 ### Authentication
 - Fixed credentials: `admin` / `password`
-- Public endpoints (no auth): `/redfish/v1/`, `/redfish/v1/health`, `/redfish/v1/Systems` (GET)
+- Public endpoints (no auth): `/redfish/v1/`, `/redfish/v1/health`, `/redfish/v1/Systems` (GET), `/redfish/v1/Managers` (GET) — for Metal3/IPI inspection
 - All other endpoints require HTTP Basic Auth
 
 ### Logging

@@ -23,20 +23,28 @@ class AuthenticationManager:
     
     def authenticate_request(self, request_handler) -> Tuple[bool, Optional[str]]:
         """
-        Authenticate incoming request
-        
+        Authenticate incoming request.
+        Supports: Basic auth, Bearer (session token), and X-Auth-Token (Redfish/Metal3 session token).
+
         Args:
             request_handler: HTTP request handler
-            
+
         Returns:
             Tuple of (is_authenticated, username)
         """
         auth_header = request_handler.headers.get('Authorization')
-        
+        x_auth_token = request_handler.headers.get('X-Auth-Token')
+
+        # X-Auth-Token: Redfish session token (used by Metal3/Ironic after session creation)
+        if x_auth_token and x_auth_token.strip():
+            valid, username = self._validate_session_token(x_auth_token.strip())
+            if valid:
+                return True, username
+
         if not auth_header:
             logger.debug("🔒 No authorization header found")
             return False, None
-        
+
         try:
             if auth_header.startswith('Basic '):
                 # Basic Authentication
