@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 class SystemsHandler:
     """Handler for Redfish Systems endpoints"""
     
-    def __init__(self, vm_configs: Dict, vmware_clients: Dict, task_manager):
+    def __init__(self, vm_configs: Dict, redfish_handler, task_manager):
         self.vm_configs = vm_configs
-        self.vmware_clients = vmware_clients
+        self._redfish = redfish_handler  # RedfishHandler.get_vmware_client() for lazy vCenter connect
         self.task_manager = task_manager
         logger.info("💻 Systems handler initialized")
     
@@ -88,7 +88,7 @@ class SystemsHandler:
         """Get system information for a VM"""
         try:
             # Get VM power state (vm_info may be None if vCenter unreachable or session expired)
-            vmware_client = self.vmware_clients.get(vm_name)
+            vmware_client = self._redfish.get_vmware_client(vm_name)
             power_state = 'Off'
             if vmware_client:
                 vm_info = vmware_client.get_vm_info(vm_name)
@@ -262,7 +262,7 @@ class SystemsHandler:
     
     def _handle_system_ethernet_interfaces_get(self, request_handler, vm_name: str, path: str):
         """Handle Systems EthernetInterfaces (NIC MACs). Required by Ironic for port discovery."""
-        client = self.vmware_clients.get(vm_name)
+        client = self._redfish.get_vmware_client(vm_name)
         interfaces = client.get_network_interfaces(vm_name) if client else []
         if not interfaces:
             # Fallback: one placeholder so Ironic still finds the attribute
@@ -322,7 +322,7 @@ class SystemsHandler:
     def _handle_power_action(self, request_handler, vm_name: str, reset_type: str):
         """Handle power management actions"""
         try:
-            vmware_client = self.vmware_clients.get(vm_name)
+            vmware_client = self._redfish.get_vmware_client(vm_name)
             if not vmware_client:
                 self._send_error_response(request_handler, 503, "VMware client not available")
                 return

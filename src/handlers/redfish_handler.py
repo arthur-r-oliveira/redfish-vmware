@@ -37,13 +37,13 @@ class RedfishHandler:
         self.auth_manager = AuthenticationManager(config)
         self.task_manager = TaskManager()
         
-        # Initialize handlers
-        self.systems_handler = SystemsHandler(self.vm_configs, self.vmware_clients, self.task_manager)
-        self.managers_handler = ManagersHandler(self.vm_configs, self.vmware_clients)
+        # Initialize handlers (pass self for lazy VMware client on first power/media op if startup failed)
+        self.systems_handler = SystemsHandler(self.vm_configs, self, self.task_manager)
+        self.managers_handler = ManagersHandler(self.vm_configs, self)
         self.chassis_handler = ChassisHandler(self.vm_configs, self.vmware_clients)
         self.update_service_handler = UpdateServiceHandler(self.vm_configs, self.vmware_clients, self.task_manager)
         
-        # Initialize VMware clients for each VM
+        # Initialize VMware clients for each VM (eager; lazy retry via get_vmware_client if this fails)
         for vm_name, vm_config in self.vm_configs.items():
             try:
                 self.vmware_clients[vm_name] = VMwareClient(
@@ -57,6 +57,30 @@ class RedfishHandler:
                 logger.error(f"❌ Failed to initialize VMware client for {vm_name}: {e}")
         
         logger.info(f"🚀 Redfish handler initialized for {len(self.vm_configs)} VMs")
+
+    def get_vmware_client(self, vm_name: str):
+        """
+        Return VMware client for vm_name. Uses cached client from startup, or creates one on demand
+        if startup init failed (e.g. vCenter was down). This avoids permanent 503 on power/media until restart.
+        """
+        if vm_name not in self.vm_configs:
+            return None
+        if vm_name in self.vmware_clients:
+            return self.vmware_clients[vm_name]
+        vm_config = self.vm_configs[vm_name]
+        try:
+            client = VMwareClient(
+                vm_config['vcenter_host'],
+                vm_config['vcenter_user'],
+                vm_config['vcenter_password'],
+                disable_ssl=vm_config.get('disable_ssl', True)
+            )
+            self.vmware_clients[vm_name] = client
+            logger.info(f"✅ VMware client initialized (on-demand) for VM: {vm_name}")
+            return client
+        except Exception as e:
+            logger.error(f"❌ On-demand VMware client init failed for {vm_name}: {e}")
+            return None
     
     def handle_get_request(self, request_handler):
         """Handle GET requests with enhanced Metal3/Ironic logging"""

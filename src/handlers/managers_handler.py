@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 class ManagersHandler:
     """Handler for Redfish Managers endpoints"""
     
-    def __init__(self, vm_configs: Dict, vmware_clients: Dict):
+    def __init__(self, vm_configs: Dict, redfish_handler):
         self.vm_configs = vm_configs
-        self.vmware_clients = vmware_clients
+        self._redfish = redfish_handler
         logger.info("🔧 Managers handler initialized")
     
     def handle_get(self, request_handler, path: str):
@@ -60,10 +60,13 @@ class ManagersHandler:
             self._send_error_response(request_handler, 404, "Manager not found")
             return
         vm_name = manager_id.replace('-bmc', '') if manager_id.endswith('-bmc') else manager_id
-        if vm_name not in self.vm_configs or vm_name not in self.vmware_clients:
+        if vm_name not in self.vm_configs:
             self._send_error_response(request_handler, 404, "Manager not found")
             return
-        client = self.vmware_clients[vm_name]
+        client = self._redfish.get_vmware_client(vm_name)
+        if not client:
+            self._send_error_response(request_handler, 503, "VMware client not available")
+            return
         if path_only.endswith('/Actions/VirtualMedia.InsertMedia'):
             self._handle_insert_media(request_handler, vm_name, client)
         elif path_only.endswith('/Actions/VirtualMedia.EjectMedia'):
